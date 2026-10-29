@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8" />
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; img-src 'self' data:" />
+<title>Covil</title>
+<style>
+  :root { --fenda:#101012; --rocha:#1c1c20; --pedra:#18181b; --pedra-3:#2c2c32; --borda:#33333a; --osso:#ececef; --cinza:#a9a9b2; --apagado:#71717a; --brasa:#ececef; --erro:#f08a80; color-scheme: dark; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; }
+  body { background: radial-gradient(110% 70% at 50% -10%, #2a2a31 0%, var(--fenda) 60%); color: var(--osso); font: 15px/1.45 'Segoe UI Variable Text', 'Segoe UI', system-ui, sans-serif; display: grid; place-items: center; padding: 24px; }
+  main { width: min(560px, 100%); }
+  .top { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+  .brand { display: flex; align-items: center; gap: 14px; font: 700 34px/1 'Segoe UI Variable Display', 'Segoe UI', sans-serif; letter-spacing: -0.02em; margin-bottom: 6px; }
+  .brand img { width: 52px; height: 52px; }
+  p.lead { color: var(--cinza); margin: 0 0 26px; }
+  .card { background: linear-gradient(180deg, #212126 0%, #19191d 100%); border: 1px solid var(--borda); border-radius: 18px; padding: 22px; display: flex; flex-direction: column; gap: 12px; box-shadow: inset 0 1px 0 rgba(255,255,255,.05), 0 18px 40px -24px #000; }
+  .card h2 { margin: 0; font-size: 19px; }
+  .card p { margin: 0; color: var(--cinza); font-size: 14px; }
+  input { font: inherit; color: var(--osso); background: var(--fenda); border: 1px solid var(--borda); border-radius: 8px; padding: 10px 12px; width: 100%; outline: none; }
+  input:focus { border-color: #8a8a94; }
+  button { font: 600 15px 'Segoe UI', sans-serif; border: 0; border-radius: 8px; padding: 11px 16px; cursor: pointer; background: linear-gradient(180deg, #34343b, #2a2a30); color: var(--osso); box-shadow: inset 0 1px 0 rgba(255,255,255,.07); }
+  button.primary { background: linear-gradient(180deg, #ffffff, #cfcfd6); color: #111114; }
+  button:disabled { opacity: .5; cursor: default; }
+  .err { color: var(--erro); font-size: 14px; min-height: 20px; margin: 0; }
+  .boot-row { display: flex; align-items: center; gap: 14px; }
+  .pulsa { width: 44px; animation: b 1.6s ease-in-out infinite; }
+  [hidden] { display: none !important; }
+  @keyframes b { 50% { filter: drop-shadow(0 0 18px rgba(255,255,255,.35)); } }
+  .langs { display: flex; gap: 2px; font-size: 12.5px; color: var(--apagado); align-items: center; }
+  .langs button { background: none; box-shadow: none; padding: 4px 6px; font-size: 12.5px; color: var(--apagado); border-radius: 6px; }
+  .langs button.on { color: var(--osso); background: var(--pedra-3); }
+  footer { margin-top: 22px; text-align: center; font-size: 12.5px; color: var(--apagado); }
+  footer a { color: var(--cinza); font-weight: 700; text-decoration: none; cursor: pointer; }
+  footer a:hover { color: #fff; }
+  footer span.sep { margin: 0 8px; }
+</style>
+</head>
+<body>
+<main id="tela">
+  <div class="top">
+    <div class="brand"><img src="icone.svg" alt="" />Covil</div>
+    <div class="langs" id="langs" role="group" aria-label="Idioma"></div>
+  </div>
+  <p class="lead" data-i="lead"></p>
+  <!-- com o servidor do Covil fixo no app (v0.7.0): só "conectando" e "tentar de novo" -->
+  <div class="card" id="c-fixo" hidden>
+    <div class="boot-row"><img src="icone.svg" alt="" class="pulsa" /><h2 id="estado" data-i="conectando"></h2></div>
+    <p class="err" id="erro" role="alert"></p>
+    <p id="dica" data-i="dica" hidden></p>
+    <div><button class="primary" id="b-tentar" data-i="tentar" hidden></button></div>
+  </div>
+  <!-- sem servidor fixo (cópia de desenvolvimento): pede o endereço -->
+  <form class="card" id="f-cliente" hidden>
+    <h2 data-i="amigoT"></h2>
+    <p data-i="amigoP"></p>
+    <p class="err" id="erro2" role="alert"></p>
+    <input id="url" placeholder="https://meucovil.duckdns.org" autofocus />
+    <button class="primary" id="b-entrar" data-i="entrar"></button>
+  </form>
+  <footer>
+    <a id="bug" data-i="bug"></a><span class="sep">·</span><a id="upd" data-i="upd"></a><span class="sep">·</span><span data-i="feito"></span> <a id="dreds">Dreds</a> · v<span id="ver"></span>
+  </footer>
+</main>
+<script>
+  // textos em português, inglês e espanhol (regra 13)
+  const TXT = {
+    pt: { lead: 'Chat, call e tela ao vivo da galera.', conectando: 'Conectando ao Covil…', semConexao: 'Sem conexão com o Covil', dica: 'Confira a sua internet. Se ela está ok, o servidor pode estar reiniciando: tente de novo em um minuto.', tentar: 'Tentar de novo', amigoT: 'Entrar no Covil', amigoP: 'Cole o endereço do servidor do Covil.', entrar: 'Entrar', bug: 'Relatar bug', upd: 'Procurar atualização', feito: 'feito por', conferindo: 'Conferindo no GitHub…', semVersao: 'Ainda não há versão publicada no GitHub.', maisNova: 'Você está na versão mais nova (v{v}).', abrindo: 'v{v} disponível. Abrindo o download…', naoConferi: 'Não consegui conferir: {e}', procurando: 'Procurando o servidor…', aconteceu: 'O que aconteceu?', telaCon: 'tela de conexão' },
+    en: { lead: 'Chat, calls and live screens for your crew.', conectando: 'Connecting to Covil…', semConexao: 'No connection to Covil', dica: 'Check your internet. If it is fine, the server may be restarting: try again in a minute.', tentar: 'Try again', amigoT: 'Join Covil', amigoP: 'Paste the Covil server address.', entrar: 'Join', bug: 'Report a bug', upd: 'Check for updates', feito: 'made by', conferindo: 'Checking GitHub…', semVersao: 'No version published on GitHub yet.', maisNova: "You're on the latest version (v{v}).", abrindo: 'v{v} available. Opening the download…', naoConferi: "Couldn't check: {e}", procurando: 'Looking for the server…', aconteceu: 'What happened?', telaCon: 'connection screen' },
+    es: { lead: 'Chat, llamadas y pantallas en vivo para tu grupo.', conectando: 'Conectando a Covil…', semConexao: 'Sin conexión con Covil', dica: 'Revisa tu internet. Si está bien, el servidor puede estar reiniciando: inténtalo de nuevo en un minuto.', tentar: 'Intentar de nuevo', amigoT: 'Entrar a Covil', amigoP: 'Pega la dirección del servidor de Covil.', entrar: 'Entrar', bug: 'Reportar error', upd: 'Buscar actualización', feito: 'hecho por', conferindo: 'Revisando en GitHub…', semVersao: 'Todavía no hay versión publicada en GitHub.', maisNova: 'Estás en la versión más nueva (v{v}).', abrindo: 'v{v} disponible. Abriendo la descarga…', naoConferi: 'No pude revisar: {e}', procurando: 'Buscando el servidor…', aconteceu: '¿Qué pasó?', telaCon: 'pantalla de conexión' },
+  };
+  const d = window.covilDesktop;
+  const q = new URLSearchParams(location.search);
+  const $ = (id) => document.getElementById(id);
+  let lang = ['pt', 'en', 'es'].includes(d.idioma) ? d.idioma : 'en';
+  const tx = (k, v = {}) => TXT[lang][k].replace(/\{(\w+)\}/g, (m, x) => (v[x] ?? m));
+  function render() {
+    document.documentElement.lang = lang === 'pt' ? 'pt-BR' : lang;
+    document.querySelectorAll('[data-i]').forEach((el) => { el.textContent = tx(el.dataset.i); });
+    $('langs').innerHTML = '';
+    [['pt', 'PT', 'Português'], ['en', 'EN', 'English'], ['es', 'ES', 'Español']].forEach(([id, lb, nome], i) => {
+      if (i) { const s = document.createElement('span'); s.textContent = '·'; $('langs').append(s); }
+      const b = document.createElement('button'); b.type = 'button'; b.textContent = lb; b.title = nome; b.className = id === lang ? 'on' : '';
+      b.onclick = () => { lang = id; d.setConfig({ idioma: id }).catch(() => {}); render(); };
+      $('langs').append(b);
+    });
+  }
+  render();
+  const fixo = !!d.servidorFixo;
+  $('c-fixo').hidden = !fixo; $('f-cliente').hidden = fixo;
+  if (q.get('erro')) {
+    if (fixo) { $('estado').dataset.i = 'semConexao'; $('estado').textContent = tx('semConexao'); $('erro').textContent = q.get('erro'); $('dica').hidden = false; $('b-tentar').hidden = false; document.querySelector('.pulsa').classList.remove('pulsa'); }
+    else $('erro2').textContent = q.get('erro');
+    if (fixo) setTimeout(() => $('b-tentar').click(), 20000); // tenta de novo sozinho
+  }
+  $('b-tentar').onclick = () => { $('b-tentar').disabled = true; $('estado').textContent = tx('conectando'); d.reconectar(); };
+  d.ready().then(() => { $('ver').textContent = d.version; });
+  $('dreds').onclick = () => d.openExternal('https://github.com/DredsGG');
+  $('bug').onclick = () => d.openExternal('https://github.com/DredsGG/covil/issues/new?title=%5Bbug%5D%20&body=' + encodeURIComponent('**' + tx('aconteceu') + '**\n\n\n---\nCovil v' + d.version + ' (' + tx('telaCon') + ')\n' + navigator.userAgent));
+  $('upd').onclick = async () => {
+    const msg = fixo ? $('erro') : $('erro2'); msg.textContent = tx('conferindo');
+    try {
+      const r = await d.checkUpdate();
+      if (!r.latest) msg.textContent = tx('semVersao');
+      else if (!r.newer) msg.textContent = tx('maisNova', { v: r.current });
+      else { msg.textContent = tx('abrindo', { v: r.latest }); d.installUpdate(r); }
+    } catch (e) { msg.textContent = tx('naoConferi', { e: e.message }); }
+  };
+  $('f-cliente').onsubmit = async (e) => {
+    e.preventDefault();
+    const url = $('url').value.trim();
+    if (!url) return;
+    $('b-entrar').disabled = true; $('erro2').textContent = tx('procurando');
+    try { await d.choose({ mode: 'client', url }); }
+    catch (er) { $('erro2').textContent = String(er.message || er).replace(/^Error invoking remote method '[^']+': (Error: )?/, ''); $('b-entrar').disabled = false; }
+  };
+</script>
+</body>
+</html>

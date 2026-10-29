@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src file: data:">
+<title>Covil</title>
+<style>
+  /* Menu da bandeja (perto do relógio) no visual do Covil — no lugar do menu cinza do Windows (v0.5.1) */
+  html, body { margin: 0; background: transparent; overflow: hidden; user-select: none; }
+  body { font: 14px/1.35 'Segoe UI', system-ui, sans-serif; color: #f4f4f6; padding: 6px; }
+  .menu { background: linear-gradient(180deg, #1f1f25 0%, #151518 100%); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 12px;
+    box-shadow: 0 14px 40px rgba(0, 0, 0, 0.6), inset 0 1px rgba(255, 255, 255, 0.05); padding: 6px; animation: entra .12s ease-out; }
+  .topo { display: flex; align-items: center; gap: 8px; padding: 6px 10px 8px; font-weight: 700; letter-spacing: .01em; }
+  .topo img { width: 18px; height: 18px; border-radius: 5px; }
+  .topo small { margin-left: auto; font-weight: 400; color: #8d8d96; font-size: 12px; }
+  a { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 8px; color: inherit; text-decoration: none; outline: none; white-space: nowrap; }
+  a:hover, a:focus-visible { background: rgba(255, 255, 255, 0.08); }
+  a svg { width: 16px; height: 16px; flex: none; color: #b9b9c2; }
+  a.perigo { color: #f08a7e; }
+  a.perigo svg { color: #f08a7e; }
+  a.perigo:hover { background: rgba(232, 106, 92, 0.14); }
+  hr { border: 0; border-top: 1px solid rgba(255, 255, 255, 0.08); margin: 6px 4px; }
+  @keyframes entra { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+</style>
+</head>
+<body>
+<div class="menu" role="menu">
+  <div class="topo"><img src="icone.png" alt=""><span>Covil</span><small id="v"></small></div>
+  <a href="#abrir" role="menuitem" id="abrir"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="3"/><path d="M3 9h18"/></svg><span></span></a>
+  <a href="#mutar" role="menuitem" id="mutar"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg><span></span></a>
+  <a href="#surdo" role="menuitem" id="surdo"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 15v-3a8 8 0 0 1 16 0v3"/><rect x="3" y="14" width="4" height="6" rx="2"/><rect x="17" y="14" width="4" height="6" rx="2"/></svg><span></span></a>
+  <hr>
+  <a href="#sair" role="menuitem" id="sair" class="perigo"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v9"/><path d="M6.3 7.3a8 8 0 1 0 11.4 0"/></svg><span></span></a>
+</div>
+<script>
+  // textos vêm do app (já traduzidos) pela query: ?t={"abrir":"…","mutar":"…","surdo":"…","sair":"…","v":"0.5.1"}
+  const q = JSON.parse(new URLSearchParams(location.search).get('t') || '{}');
+  for (const id of ['abrir', 'mutar', 'surdo', 'sair']) document.querySelector('#' + id + ' span').textContent = q[id] || id;
+  document.getElementById('v').textContent = q.v ? 'v' + q.v : '';
+  document.addEventListener('keydown', (e) => {
+    const itens = [...document.querySelectorAll('a')];
+    const i = itens.indexOf(document.activeElement);
+    if (e.key === 'ArrowDown') { e.preventDefault(); itens[(i + 1) % itens.length].focus(); }
+    if (e.key === 'ArrowUp') { e.preventDefault(); itens[(i - 1 + itens.length) % itens.length].focus(); }
+    if (e.key === 'Escape') location.hash = '#fechar';
+  });
+</script>
+</body>
+</html>

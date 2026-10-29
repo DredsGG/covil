@@ -1,0 +1,57 @@
+{
+  "name": "covil-instalador",
+  "productName": "Covil",
+  "version": "0.7.0",
+  "description": "Covil",
+  "author": "Dreds",
+  "license": "MIT",
+  "private": true,
+  "build": {
+    "appId": "gg.dreds.covil",
+    "productName": "Covil",
+    "electronVersion": "45.0.0",
+    "copyright": "André Miller Fleck (Dreds)",
+    "directories": {
+      "output": "dist",
+      "buildResources": "."
+    },
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "../desktop/icone.ico",
+      "signAndEditExecutable": false
+    },
+    "nsis": {
+      "guid": "3e53d124-8b53-5b83-a792-3013e3e9c921",
+      "oneClick": false,
+      "perMachine": false,
+      "allowElevation": false,
+      "allowToChangeInstallationDirectory": false,
+      "createDesktopShortcut": false,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Covil",
+      "menuCategory": false,
+      "runAfterFinish": true,
+      "deleteAppDataOnUninstall": false,
+      "artifactName": "Covil-Setup-${version}.${ext}",
+      "installerIcon": "../desktop/icone.ico",
+      "uninstallerIcon": "../desktop/icone.ico",
+      "uninstallDisplayName": "Covil",
+      "multiLanguageInstaller": true,
+      "installerLanguages": [
+        "en_US",
+        "pt_BR",
+        "es_ES"
+      ],
+      "displayLanguageSelector": false,
+      "include": "installer.nsh"
+    },
+    "publish": []
+  }
+}

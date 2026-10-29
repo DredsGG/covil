@@ -1,0 +1,239 @@
+name: Release
+
+# Publishing a GitHub Release with tag vX.Y.Z (same version as package.json) builds and tests the Covil app for Windows:
+#   - "portable" (Ubuntu): the portable Windows folder and Covil-vX.Y.Z-windows.zip (Electron download checked by
+#     SHA-256). The Covil server address comes from the repository secret COVIL_SERVIDOR.
+#   - "installer" (real Windows): Covil-Setup-X.Y.Z.exe with electron-builder (NSIS, per user, no admin rights).
+#     Before anything is attached it is tested for real: silent install, Start menu and desktop shortcuts,
+#     the installed app opens (self-test), the update path the "Update" button uses (the installed app finds a
+#     newer release on a local test server, refuses a setup whose SHA-256 doesn't match, downloads the right one,
+#     checks it, installs silently and reopens on the new version), then uninstall and check nothing was left.
+#   - "notes": adds the install instructions under the release notes.
+# Pushing to the "instalador" branch (or running it by hand) only builds and tests; nothing is published.
+on:
+  release:
+    types: [published]
+  push:
+    branches: [instalador]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  ELECTRON_URL: https://github.com/electron/electron/releases/download/v45.0.0/electron-v45.0.0-win32-x64.zip
+  ELECTRON_SHA256: ae53887a23bb640369c93dbd38c408a2af5c0deb86f2fa76c6c244cb444b7f47
+  ELECTRON_BUILDER: electron-builder@26.18.0
+
+jobs:
+  portable:
+    runs-on: ubuntu-24.04
+    env:
+      GH_TOKEN: ${{ github.token }}
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event_name == 'release' && github.event.release.tag_name || github.sha }}
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+      - name: Read the version (and check the tag on a release)
+        id: v
+        run: |
+          V=$(node -p "require('./package.json').version")
+          echo "version=$V" >> "$GITHUB_OUTPUT"
+          if [ "${{ github.event_name }}" = "release" ]; then
+            TAG="${{ github.event.release.tag_name }}"
+            [ "$TAG" = "v$V" ] || { echo "::error::Tag $TAG does not match version v$V"; exit 1; }
+          fi
+          echo "Building Covil $V"
+      - name: Download Electron for Windows (checked by SHA-256)
+        run: |
+          mkdir -p build
+          curl -fsSL -o build/electron-win.zip "$ELECTRON_URL"
+          echo "$ELECTRON_SHA256  build/electron-win.zip" | sha256sum -c -
+      - name: Install dependencies
+        run: npm ci --prefix desktop
+      - name: Build the portable app
+        env:
+          COVIL_SERVIDOR: ${{ secrets.COVIL_SERVIDOR }}
+        run: node scripts/empacotar.mjs build/electron-win.zip build/out
+      - uses: actions/upload-artifact@v6
+        with:
+          name: covil-portatil
+          path: build/out/Covil
+          include-hidden-files: true
+          retention-days: 3
+      - uses: actions/upload-artifact@v6
+        with:
+          name: Covil-v${{ steps.v.outputs.version }}-windows
+          path: build/out/Covil-v${{ steps.v.outputs.version }}-windows.zip
+      - name: Attach the zip to the Release
+        if: github.event_name == 'release'
+        run: gh release upload "${{ github.event.release.tag_name }}" "build/out/Covil-v${{ steps.v.outputs.version }}-windows.zip" --clobber
+
+  installer:
+    needs: portable
+    runs-on: windows-2025
+    env:
+      GH_TOKEN: ${{ github.token }}
+      V: ${{ needs.portable.outputs.version }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event_name == 'release' && github.event.release.tag_name || github.sha }}
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+      - uses: actions/download-artifact@v7
+        with:
+          name: covil-portatil
+          path: build/Covil
+      - name: Build Covil-Setup (and a "newer" 9.9.9 setup used only to test the update)
+        shell: pwsh
+        run: |
+          if (-not (Test-Path build\Covil\Covil.exe)) { Write-Error "portable folder missing"; exit 1 }
+          Push-Location instalador
+          npx --yes $env:ELECTRON_BUILDER --win nsis --x64 --prepackaged ..\build\Covil --publish never
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          npx --yes $env:ELECTRON_BUILDER --win nsis --x64 --prepackaged ..\build\Covil --publish never "-c.extraMetadata.version=9.9.9" "-c.directories.output=dist-proximo"
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          Pop-Location
+          Get-Item "instalador\dist\Covil-Setup-$env:V.exe", "instalador\dist-proximo\Covil-Setup-9.9.9.exe" | Format-List Name, Length
+
+      - name: Install silently, self-test, update for real, uninstall
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $setup = (Resolve-Path "instalador\dist\Covil-Setup-$env:V.exe").Path
+          $app = Join-Path $env:LOCALAPPDATA "Programs\Covil"
+          $exe = Join-Path $app "Covil.exe"
+          $menu = Join-Path ([Environment]::GetFolderPath("Programs")) "Covil.lnk"
+          $desk = Join-Path ([Environment]::GetFolderPath("Desktop")) "Covil.lnk"
+          $dados = Join-Path $env:APPDATA "Covil"
+          $log = Join-Path $dados "covil.log"
+          function Chave { Get-ChildItem "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall" | Get-ItemProperty | Where-Object { $_.DisplayName -eq "Covil" } }
+
+          # 1. silent install, per user (no admin)
+          $i = Start-Process $setup -ArgumentList "/S" -Wait -PassThru
+          if ($i.ExitCode -ne 0) { Write-Error "Setup exit $($i.ExitCode)" }
+          for ($k = 0; $k -lt 60 -and -not (Test-Path $exe); $k++) { Start-Sleep 1 }
+          if (-not (Test-Path $exe)) { Write-Error "Not installed at $exe" }
+          if (-not (Test-Path (Join-Path $app "Uninstall Covil.exe"))) { Write-Error "No uninstaller" }
+          if (-not (Test-Path $menu)) { Write-Error "No Start menu shortcut at $menu" }
+          if (-not (Test-Path $desk)) { Write-Error "No desktop shortcut at $desk" }
+          $c = Chave
+          "Installed: $($c.DisplayName) $($c.DisplayVersion) at $($c.InstallLocation) (HKCU)"
+          if (-not $c -or $c.DisplayVersion -ne $env:V) { Write-Error "Uninstall entry missing or wrong version" }
+          if (Get-ChildItem "HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall" -ErrorAction SilentlyContinue | Get-ItemProperty | Where-Object { $_.DisplayName -eq "Covil" }) { Write-Error "Installed per machine (HKLM), expected per user" }
+
+          # 2. the installed app opens (and keeps its data outside the app folder)
+          $p = Start-Process $exe -ArgumentList "--autoteste=$PWD\autoteste.json" -Wait -PassThru
+          Get-Content autoteste.json
+          $r = Get-Content autoteste.json | ConvertFrom-Json
+          if ($p.ExitCode -ne 0 -or -not $r.passou -or -not $r.instalado) { Write-Error "Installed self-test failed" }
+          if ($r.userData -ne $dados) { Write-Error "Data folder is $($r.userData), expected $dados" }
+
+          # 3. update, the way "Update" does it: local test server with a "newer" release
+          $srv = Join-Path $PWD "servidor-teste"
+          New-Item -ItemType Directory -Force $srv | Out-Null
+          Copy-Item "instalador\dist-proximo\Covil-Setup-9.9.9.exe" $srv
+          $f = Get-Item (Join-Path $srv "Covil-Setup-9.9.9.exe")
+          $sha = (Get-FileHash $f.FullName -Algorithm SHA256).Hash.ToLower()
+          function Release($digest) { @{ tag_name = "v9.9.9"; html_url = "https://github.com/DredsGG/covil/releases"; body = "### What's new`n- test release"; assets = @(@{ name = "Covil-Setup-9.9.9.exe"; browser_download_url = "http://127.0.0.1:8765/Covil-Setup-9.9.9.exe"; size = $f.Length; digest = $digest }) } | ConvertTo-Json -Depth 5 }
+          Release "sha256:$sha" | Set-Content (Join-Path $srv "certo.json") -Encoding utf8
+          Release ("sha256:" + ("0" * 64)) | Set-Content (Join-Path $srv "errado.json") -Encoding utf8
+          $web = Start-Process python -ArgumentList "-m", "http.server", "8765", "--bind", "127.0.0.1", "--directory", $srv -PassThru -WindowStyle Hidden
+          # wait until the test server answers (a fixed 3 s was not always enough on the runner)
+          for ($k = 0; $k -lt 30; $k++) { try { Invoke-WebRequest "http://127.0.0.1:8765/certo.json" -UseBasicParsing -TimeoutSec 2 | Out-Null; break } catch { Start-Sleep 1 } }
+          # 3a. wrong SHA-256: refuses and installs nothing
+          $env:COVIL_RELEASES_URL = "http://127.0.0.1:8765/errado.json"
+          $p = Start-Process $exe -ArgumentList "--atualizar-agora=$PWD\atualizacao-errada.json" -Wait -PassThru
+          Get-Content atualizacao-errada.json
+          $r = Get-Content atualizacao-errada.json | ConvertFrom-Json
+          if ($r.passou -or $r.erro -notmatch "SHA-256") { Write-Error "A setup with the wrong SHA-256 was not refused" }
+          if ((Chave).DisplayVersion -ne $env:V) { Write-Error "Something was installed after a wrong SHA-256" }
+          # 3b. right SHA-256: downloads, checks, closes, installs silently and reopens
+          $env:COVIL_RELEASES_URL = "http://127.0.0.1:8765/certo.json"
+          $a = Start-Process $exe -ArgumentList "--atualizar-agora=$PWD\atualizacao.json" -PassThru
+          if (-not $a.WaitForExit(120000)) { Write-Error "Covil did not close to let the setup run" }
+          Get-Content atualizacao.json
+          $r = Get-Content atualizacao.json | ConvertFrom-Json
+          if (-not $r.passou -or $r.sha256 -ne $sha) { Write-Error "Download/SHA-256 check failed" }
+          Remove-Item Env:COVIL_RELEASES_URL
+          $ver = ""; $novo = $null
+          for ($k = 0; $k -lt 180; $k++) {
+            $ver = (Chave).DisplayVersion
+            $novo = Get-CimInstance Win32_Process -Filter "Name='Covil.exe'" | Where-Object { $_.CommandLine -like "*--updated*" }
+            if ($ver -eq "9.9.9" -and $novo) { break }
+            Start-Sleep 1
+          }
+          "After update: DisplayVersion=$ver, reopened: $($novo.CommandLine | Select-Object -First 1)"
+          if ($ver -ne "9.9.9") { Write-Error "The update did not install" }
+          if (-not $novo) { Write-Error "Covil did not reopen after the update" }
+          for ($k = 0; $k -lt 30 -and -not (Select-String -Path $log -Pattern "aberto pelo instalador" -Quiet); $k++) { Start-Sleep 1 }
+          $ok = Select-String -Path $log -Pattern "aberto pelo instalador" -Quiet
+          Copy-Item $log "covil-atualizado.log"
+          Get-CimInstance Win32_Process -Filter "Name='Covil.exe'" | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
+          Stop-Process -Id $web.Id -Force -ErrorAction SilentlyContinue
+          Start-Sleep 3
+          if (-not $ok) { Write-Error "The reopened Covil did not start normally" }
+          if (-not (Test-Path $menu) -or -not (Test-Path $desk)) { Write-Error "The update lost a shortcut" }
+          "Update: OK"
+
+          # 4. uninstall and check nothing was left (the user's data in %APPDATA%\Covil stays on purpose)
+          Start-Process (Join-Path $app "Uninstall Covil.exe") -ArgumentList "/S" -Wait
+          for ($k = 0; $k -lt 90 -and ((Test-Path $exe) -or (Chave)); $k++) { Start-Sleep 1 }
+          if (Test-Path $exe) { Write-Error "Uninstall left Covil.exe behind" }
+          if (Test-Path $app) { Write-Error "Uninstall left $app" }
+          if (Test-Path $menu) { Write-Error "Uninstall left the Start menu shortcut" }
+          if (Test-Path $desk) { Write-Error "Uninstall left the desktop shortcut" }
+          if (Chave) { Write-Error "Uninstall left the Apps entry" }
+          if (-not (Test-Path $dados)) { Write-Error "Uninstall deleted the user's data" }
+          "Install, self-test, update and uninstall: OK (data kept in $dados)"
+
+      - uses: actions/upload-artifact@v6
+        if: always()
+        with:
+          name: Covil-Setup-${{ env.V }}
+          path: |
+            instalador/dist/Covil-Setup-*.exe
+            autoteste.json
+            atualizacao*.json
+            covil-atualizado.log
+          if-no-files-found: ignore
+
+      - name: Attach the setup to the Release
+        if: github.event_name == 'release'
+        shell: bash
+        run: gh release upload "${{ github.event.release.tag_name }}" "instalador/dist/Covil-Setup-$V.exe" --clobber
+
+  notes:
+    if: github.event_name == 'release'
+    needs: [portable, installer]
+    runs-on: ubuntu-24.04
+    env:
+      TAG: ${{ github.event.release.tag_name }}
+      V: ${{ needs.portable.outputs.version }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Put the install instructions under the release notes
+        run: |
+          gh release view "$TAG" -R "${{ github.repository }}" --json body -q .body > old.md
+          grep -q '^### Install' old.md && exit 0
+          cat > bottom.md <<EOF
+
+          ### Install (Windows 10/11)
+          1. Download **Covil-Setup-$V.exe** below and run it. No admin rights needed: it installs for your user in \`%LOCALAPPDATA%\\Programs\\Covil\`, adds Covil to the Start menu and, if you want, a desktop shortcut.
+          2. The installer is not code-signed, so Windows may show **"Windows protected your PC"**: click **More info → Run anyway**.
+          3. Covil updates itself: when a new version comes out it shows **New version** with an **Update** button.
+          4. Uninstall from **Settings → Apps**. Your accounts and messages stay in \`%APPDATA%\\Covil\`.
+
+          Portable alternative: **Covil-$TAG-windows.zip** (extract the folder and open \`Covil.exe\`).
+
+          EOF
+          sed -i 's/^          //' bottom.md
+          cat old.md bottom.md > notes.md
+          gh release edit "$TAG" -R "${{ github.repository }}" --notes-file notes.md
