@@ -46,7 +46,8 @@ export async function procurar(urlReleases, versaoAtual, lang) {
   const s = assets.find((a) => SETUP_RE.test(a.name || ''));
   const zip = assets.find((a) => /\.zip$/i.test(a.name || ''));
   return {
-    current: versaoAtual, latest, newer: maisNova(latest, versaoAtual),
+    // só avisa quando o Release já tem o instalador conferido (v0.7.2): o aviso não chega antes de ter o que baixar
+    current: versaoAtual, latest, newer: maisNova(latest, versaoAtual) && (process.platform !== 'win32' || /^sha256:/i.test(s?.digest || '')),
     // versão urgente (regra 14d): o André põe "URGENTE" no título do Release
     urgente: /URGENTE/i.test(String(j.name || '')),
     notes: j.body || '', resumo: notasNoIdioma(j.body, lang), url: j.html_url,

@@ -103,6 +103,10 @@ The [Release workflow](.github/workflows/release.yml) builds the app on GitHub (
 
 Use **Report a bug** in the app footer — it opens an issue here with the version and a diagnostic without personal data. Or [open an issue](https://github.com/DredsGG/covil/issues/new).
 
+## Support
+
+This project is free and always will be. If it helps you, you can support it on [GitHub Sponsors](https://github.com/sponsors/DredsGG) (one-time or monthly). 🇧🇷 In Brazil? Pix: `fa525dad-afca-4683-845d-eee7225a53e3`
+
 ## License
 
 MIT © 2026 André Miller Fleck (Dreds). Third-party components are listed in [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).

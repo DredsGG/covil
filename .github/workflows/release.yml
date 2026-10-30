@@ -1,6 +1,8 @@
 name: Release
 
-# Publishing a GitHub Release with tag vX.Y.Z (same version as package.json) builds and tests the Covil app for Windows:
+# Pushing a tag vX.Y.Z (same version as package.json) builds and tests the Covil app for Windows and only then
+# publishes the Release with everything attached, so the app's "New version" notice never shows up before there is
+# something to download. (Publishing a Release by hand still works: the files are attached to it.)
 #   - "portable" (Ubuntu): the portable Windows folder and Covil-vX.Y.Z-windows.zip (Electron download checked by
 #     SHA-256). The Covil server address comes from the repository secret COVIL_SERVIDOR.
 #   - "installer" (real Windows): Covil-Setup-X.Y.Z.exe with electron-builder (NSIS, per user, no admin rights).
@@ -8,13 +10,15 @@ name: Release
 #     the installed app opens (self-test), the update path the "Update" button uses (the installed app finds a
 #     newer release on a local test server, refuses a setup whose SHA-256 doesn't match, downloads the right one,
 #     checks it, installs silently and reopens on the new version), then uninstall and check nothing was left.
-#   - "notes": adds the install instructions under the release notes.
+#   - "publish" (tag push): creates the Release with NOTAS-RELEASE.md + the install instructions and both files.
+#   - "notes" (Release published by hand): adds the install instructions under the release notes.
 # Pushing to the "instalador" branch (or running it by hand) only builds and tests; nothing is published.
 on:
   release:
     types: [published]
   push:
     branches: [instalador]
+    tags: ['v*']
   workflow_dispatch:
 
 permissions:
@@ -44,8 +48,8 @@ jobs:
         run: |
           V=$(node -p "require('./package.json').version")
           echo "version=$V" >> "$GITHUB_OUTPUT"
-          if [ "${{ github.event_name }}" = "release" ]; then
-            TAG="${{ github.event.release.tag_name }}"
+          if [ "${{ github.event_name }}" = "release" ] || [ "${{ github.ref_type }}" = "tag" ]; then
+            TAG="${{ github.event_name == 'release' && github.event.release.tag_name || github.ref_name }}"
             [ "$TAG" = "v$V" ] || { echo "::error::Tag $TAG does not match version v$V"; exit 1; }
           fi
           echo "Building Covil $V"
@@ -237,3 +241,39 @@ jobs:
           sed -i 's/^          //' bottom.md
           cat old.md bottom.md > notes.md
           gh release edit "$TAG" -R "${{ github.repository }}" --notes-file notes.md
+
+  publish:
+    if: github.event_name == 'push' && github.ref_type == 'tag'
+    needs: [portable, installer]
+    runs-on: ubuntu-24.04
+    env:
+      TAG: ${{ github.ref_name }}
+      V: ${{ needs.portable.outputs.version }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/download-artifact@v7
+        with:
+          name: Covil-Setup-${{ needs.portable.outputs.version }}
+          path: dl/setup
+      - uses: actions/download-artifact@v7
+        with:
+          name: Covil-v${{ needs.portable.outputs.version }}-windows
+          path: dl/zip
+      - name: Publish the Release with the tested files
+        run: |
+          SETUP=$(find dl/setup -name "Covil-Setup-$V.exe" | head -1); ZIP=$(find dl/zip -name "Covil-v$V-windows.zip" | head -1)
+          test -f "$SETUP" && test -f "$ZIP"
+          cp NOTAS-RELEASE.md notes.md 2>/dev/null || echo "Covil $TAG" > notes.md
+          cat >> notes.md <<EOF
+
+          ### Install (Windows 10/11)
+          1. Download **Covil-Setup-$V.exe** below and run it. No admin rights needed: it installs for your user in \`%LOCALAPPDATA%\\Programs\\Covil\`, adds Covil to the Start menu and, if you want, a desktop shortcut.
+          2. The installer is not code-signed, so Windows may show **"Windows protected your PC"**: click **More info → Run anyway**.
+          3. Covil updates itself: when a new version comes out it shows **New version** with an **Update** button.
+          4. Uninstall from **Settings → Apps**. Your settings stay in \`%APPDATA%\\Covil\`.
+
+          Portable alternative: **Covil-$TAG-windows.zip** (extract the folder and open \`Covil.exe\`).
+          EOF
+          sed -i 's/^          //' notes.md
+          gh release create "$TAG" "$SETUP" "$ZIP" -R "${{ github.repository }}" --title "Covil $TAG" --notes-file notes.md --verify-tag
