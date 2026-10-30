@@ -65,12 +65,26 @@
   FunctionEnd
   !macroend
 
+  ; v0.7.3: depois de atualizar, o atalho da área de trabalho ficava com o ícone em branco. Na atualização o Covil.exe
+  ; antigo é apagado e o novo copiado; o Windows guardava o "sem ícone" daquele instante e ninguém avisava que mudou
+  ; (com createDesktopShortcut desligado, o electron-builder não chama o SHChangeNotify). Agora o atalho existente é
+  ; refeito apontando para o exe novo e o Windows é avisado para redesenhar os ícones.
   !macro customInstall
-    ${ifNot} ${isUpdated}
+    ${if} ${isUpdated}
+      ${if} ${FileExists} "$DESKTOP\Covil.lnk"
+        Delete "$DESKTOP\Covil.lnk"
+        CreateShortCut "$DESKTOP\Covil.lnk" "$INSTDIR\Covil.exe" "" "$INSTDIR\Covil.exe" 0
+        ClearErrors
+        WinShell::SetLnkAUMI "$DESKTOP\Covil.lnk" "${APP_ID}"
+      ${endif}
+    ${else}
       ${if} $CovilAtalho == "1"
         CreateShortCut "$DESKTOP\Covil.lnk" "$INSTDIR\Covil.exe" "" "$INSTDIR\Covil.exe" 0
+        ClearErrors
+        WinShell::SetLnkAUMI "$DESKTOP\Covil.lnk" "${APP_ID}"
       ${endif}
     ${endif}
+    System::Call 'Shell32::SHChangeNotify(i 0x8000000, i 0, i 0, i 0)'
   !macroend
 !endif
 

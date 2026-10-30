@@ -22,14 +22,16 @@ export const CONHECIDOS = {
   'hollow knight': 'Hollow Knight', 'hollow knight silksong': 'Hollow Knight: Silksong', 'the finals': 'THE FINALS', discovery: 'THE FINALS', 'onimusha': 'Onimusha',
 };
 // o que não é jogo (lojas, atualizadores, antitrapaça...) mesmo estando na pasta de um jogo
-const NAO_JOGO = /^(steam|steamwebhelper|steamservice|epicgameslauncher|epicwebhelper|riotclient\w*|riot client|leagueclient\w*|battle\.net|agent|eadesktop|eabackgroundservice|origin\w*|upc|ubisoftconnect|uplaywebcore|galaxyclient\w*|gogalaxy\w*|xboxapp\w*|gamebar\w*|overwolf\w*|vgtray|vgc|easyanticheat\w*|beservice\w*|start_protected_game|crashreport\w*|unitycrashhandler\w*|\w*crash\w*|\w*launcher\w*|\w*updater\w*|\w*setup\w*|\w*install\w*|unins\d*|vc_redist\w*|dxsetup|\w*helper\w*|cefsharp\.browsersubprocess|qtwebengineprocess)$/i;
+const NAO_JOGO = /^(steam|steamwebhelper|steamservice|epicgameslauncher|epicwebhelper|riotclient\w*|riot client|leagueclient\w*|battle\.net|agent|eadesktop|eabackgroundservice|origin\w*|upc|ubisoftconnect|uplaywebcore|galaxyclient\w*|gogalaxy\w*|xboxapp\w*|gamebar\w*|overwolf\w*|vgtray|vgc|easyanticheat\w*|beservice\w*|start_protected_game|crashreport\w*|unitycrashhandler\w*|\w*crash\w*|\w*launcher\w*|\w*updater\w*|\w*setup\w*|\w*install\w*|unins\d*|vc_redist\w*|dxsetup|\w*helper\w*|cefsharp\.browsersubprocess|qtwebengineprocess|\w*overlay\w*|eos\w*|epiconlineservices\w*|gameoverlayui\w*|steamerrorreporter\w*|wallpaper\d*|webwallpaper\d*|ui32)$/i;
 const PASTAS = [
   /\\steamapps\\common\\([^\\]+)\\/i, /\\Epic Games\\([^\\]+)\\/i, /\\Riot Games\\([^\\]+)\\/i, /\\XboxGames\\([^\\]+)\\/i,
   /\\GOG Games\\([^\\]+)\\/i, /\\Ubisoft Game Launcher\\games\\([^\\]+)\\/i, /\\EA Games\\([^\\]+)\\/i, /\\Battle\.net\\([^\\]+)\\/i,
   // Linux (só para os testes)
   /\/steamapps\/common\/([^/]+)\//i,
 ];
-const PASTA_NAO_JOGO = /^(riot client|launcher|steamworks shared|steamvr|vrchat\s*launcher)$/i;
+// v0.7.3: "Epic Online Services" (sobreposição da Epic que roda junto com vários jogos, inclusive da Steam) aparecia
+// como jogo; o mesmo valia para outras pastas de serviço/ferramenta que ficam abertas sem ser jogo
+const PASTA_NAO_JOGO = /^(riot client|launcher|steamworks shared|steamvr|vrchat\s*launcher|epic online services|directxredist|steam controller configs|steam linux runtime.*|proton.*|wallpaper_engine|ubisoft connect|battle\.net)$/i;
 const exe = (n) => String(n || '').toLowerCase().replace(/\.exe$/, '');
 
 // processos: [{ nome, caminho, titulo }]; registrados: [{ caminho, nome }]
@@ -39,13 +41,17 @@ export function detectarJogo(processos, registrados = []) {
     if (alvo && processos.some((p) => String(p.caminho || '').toLowerCase() === alvo)) return r.nome;
   }
   for (const p of processos) { const n = CONHECIDOS[exe(p.nome)]; if (n) return n; }
-  for (const p of processos) {
-    if (!p.caminho || NAO_JOGO.test(exe(p.nome))) continue;
+  // pela pasta: primeiro os programas com janela (o jogo tem janela; serviço e sobreposição não), depois o resto
+  const pelaPasta = (p) => {
+    if (!p.caminho || NAO_JOGO.test(exe(p.nome))) return null;
     for (const re of PASTAS) {
       const m = re.exec(p.caminho);
       if (m && !PASTA_NAO_JOGO.test(m[1].trim())) return m[1].trim();
     }
-  }
+    return null;
+  };
+  for (const p of processos) { if (p.titulo) { const n = pelaPasta(p); if (n) return n; } }
+  for (const p of processos) { if (!p.titulo) { const n = pelaPasta(p); if (n) return n; } }
   return null;
 }
 

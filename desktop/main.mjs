@@ -102,15 +102,33 @@ const trustedUrl = (url) => {
 };
 const trusted = (wc) => !!wc && trustedUrl(wc.getURL());
 
+// janela maior que a tela (v0.7.3): o tamanho salvo vinha de outro monitor ou resolução e a parte de baixo (botões
+// da call) ficava atrás da barra de tarefas, mesmo trocando para janela. Agora o tamanho cabe na área útil da tela.
+function cabeNaTela(b = {}) {
+  const pedido = { x: Number.isFinite(b.x) ? b.x : 0, y: Number.isFinite(b.y) ? b.y : 0, width: b.width || 1360, height: b.height || 840 };
+  const area = (screen.getDisplayMatching(pedido) || screen.getPrimaryDisplay()).workArea;
+  const width = Math.max(Math.min(pedido.width, area.width), Math.min(940, area.width));
+  const height = Math.max(Math.min(pedido.height, area.height), Math.min(560, area.height));
+  const dentro = Number.isFinite(b.x) && Number.isFinite(b.y) && b.x >= area.x - 8 && b.y >= area.y - 8 && b.x + width <= area.x + area.width + 8 && b.y + height <= area.y + area.height + 8;
+  return dentro ? { x: b.x, y: b.y, width, height } : { x: Math.round(area.x + (area.width - width) / 2), y: Math.round(area.y + (area.height - height) / 2), width, height };
+}
+
 function createWindow() {
   const st = cfg.window || {};
+  const b = cabeNaTela(st);
   win = new BrowserWindow({
-    width: st.width || 1360, height: st.height || 840, x: st.x, y: st.y, minWidth: 940, minHeight: 560,
+    width: b.width, height: b.height, x: b.x, y: b.y, minWidth: Math.min(940, b.width), minHeight: Math.min(560, b.height),
     backgroundColor: '#18181b', title: 'Covil', icon: iconPath, show: false, autoHideMenuBar: true,
     webPreferences: { preload: path.join(here, 'preload.cjs'), contextIsolation: true, sandbox: true, backgroundThrottling: false, spellcheck: true },
   });
   if (st.maximized) win.maximize();
+  // desmaximizar ou trocar de monitor/resolução: continua cabendo na tela
+  const ajustar = () => { if (!win || win.isMaximized() || win.isFullScreen()) return; const atual = win.getBounds(); const n = cabeNaTela(atual); if (n.width !== atual.width || n.height !== atual.height || n.x !== atual.x || n.y !== atual.y) win.setBounds(n); };
+  win.on('unmaximize', () => setTimeout(ajustar, 50));
+  screen.on('display-metrics-changed', ajustar);
+  screen.on('display-removed', ajustar);
   win.once('ready-to-show', () => { if (!process.argv.includes('--escondido')) win.show(); });
+
   win.on('close', (e) => {
     const b = win.getNormalBounds();
     cfg.window = { ...b, maximized: win.isMaximized() };
@@ -127,16 +145,45 @@ function createWindow() {
   win.webContents.on('did-fail-load', (_e, code, desc, url, isMain) => {
     if (!isMain || code === -3) return;
     log('falha ao abrir', url, code, desc);
-    win.loadFile(path.join(here, 'conectar.html'), { query: { erro: tx('naoAbriu', { u: url, d: desc }) } });
+    semConexao(tx('naoAbriu', { u: url, d: desc }));
   });
+  // tela preta (v0.7.3): a página do servidor carregou mas a interface não apareceu (ou o processo da página caiu).
+  // Confere alguns segundos depois de carregar; recarrega uma vez e, se continuar vazia, mostra "Sem conexão".
+  win.webContents.on('did-finish-load', () => {
+    clearTimeout(vigiaCarga);
+    const url = win.webContents.getURL();
+    if (!/^https?:/.test(url)) return;
+    setTimeout(async () => {
+      if (!win || win.webContents.getURL() !== url) return;
+      const vazia = await win.webContents.executeJavaScript('!document.querySelector("#root")?.childElementCount', true).catch(() => true);
+      if (!vazia) { recarregouVazia = 0; return; }
+      log('a interface não apareceu depois de carregar', url);
+      if (recarregouVazia++ < 1) win.webContents.reloadIgnoringCache(); else { recarregouVazia = 0; semConexao(tx('naoAbriu', { u: url, d: 'tela vazia' })); }
+    }, 8000);
+  });
+  win.webContents.on('render-process-gone', (_e, d) => { log('a página caiu', d?.reason || ''); if (d?.reason !== 'clean-exit') setTimeout(() => openMain(), 500); });
+  win.webContents.on('unresponsive', () => log('a página parou de responder'));
   win.webContents.on('page-title-updated', (e) => e.preventDefault());
   openMain();
 }
 
-function openMain() {
+let vigiaCarga = null;
+let recarregouVazia = 0;
+function semConexao(msg) { clearTimeout(vigiaCarga); win?.loadFile(path.join(here, 'conectar.html'), { query: { erro: msg } }); }
+async function openMain() {
   if (!cfg.mode || !cfg.serverUrl) return win.loadFile(path.join(here, 'conectar.html'));
+  // primeiro a tela local "Conectando ao Covil…" (aparece na hora) e uma pergunta rápida ao servidor; só então abre
+  // o Covil. Antes, servidor lento ou fora do ar deixava a janela preta até o Windows desistir (v0.7.3).
+  if (SERVIDOR && !/^file:/.test(win.webContents.getURL() || '') ) await win.loadFile(path.join(here, 'conectar.html')).catch(() => {});
+  try {
+    const r = await net.fetch(new URL('/api/info', cfg.serverUrl).toString(), { signal: AbortSignal.timeout(10000), cache: 'no-store' });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+  } catch (e) { log('o servidor não respondeu', e.message); return semConexao(tx('naoAbriu', { u: cfg.serverUrl, d: e.name === 'TimeoutError' ? 'sem resposta' : e.message })); }
   win.loadURL(cfg.pendingUrl || cfg.serverUrl);
   if (cfg.pendingUrl) { delete cfg.pendingUrl; saveCfg(cfg); }
+  // servidor que não responde nem recusa (conexão pendurada): em vez de janela preta, "Sem conexão" em 20 s (v0.7.3)
+  clearTimeout(vigiaCarga);
+  vigiaCarga = setTimeout(() => { if (win && win.webContents.isLoadingMainFrame()) { log('o servidor não respondeu em 20 s'); win.webContents.stop(); semConexao(tx('naoAbriu', { u: cfg.serverUrl, d: 'sem resposta' })); } }, Number(process.env.COVIL_TEMPO_CARGA) || 20000);
 }
 
 function showWindow() { if (!win) return; if (win.isMinimized()) win.restore(); win.show(); win.focus(); }

@@ -160,6 +160,8 @@ jobs:
           if ($r.passou -or $r.erro -notmatch "SHA-256") { Write-Error "A setup with the wrong SHA-256 was not refused" }
           if ((Chave).DisplayVersion -ne $env:V) { Write-Error "Something was installed after a wrong SHA-256" }
           # 3b. right SHA-256: downloads, checks, closes, installs silently and reopens
+          $antesDaAtualizacao = (Get-Item $desk).LastWriteTime
+          Start-Sleep 2
           $env:COVIL_RELEASES_URL = "http://127.0.0.1:8765/certo.json"
           $a = Start-Process $exe -ArgumentList "--atualizar-agora=$PWD\atualizacao.json" -PassThru
           if (-not $a.WaitForExit(120000)) { Write-Error "Covil did not close to let the setup run" }
@@ -185,6 +187,18 @@ jobs:
           Start-Sleep 3
           if (-not $ok) { Write-Error "The reopened Covil did not start normally" }
           if (-not (Test-Path $menu) -or -not (Test-Path $desk)) { Write-Error "The update lost a shortcut" }
+          # v0.7.3: the desktop shortcut is rebuilt after the update (it used to keep a blank icon) and points at the new exe
+          $sh = New-Object -ComObject WScript.Shell
+          foreach ($l in @($desk, $menu)) {
+            $lnk = $sh.CreateShortcut($l)
+            "Shortcut $l -> $($lnk.TargetPath) | icon $($lnk.IconLocation)"
+            if ($lnk.TargetPath -ne $exe) { Write-Error "Shortcut $l points at $($lnk.TargetPath), expected $exe" }
+            if ($lnk.IconLocation -notlike "$exe,0") { Write-Error "Shortcut $l icon is $($lnk.IconLocation), expected $exe,0" }
+          }
+          if ((Get-Item $desk).LastWriteTime -le $antesDaAtualizacao) { Write-Error "The update did not rebuild the desktop shortcut (blank icon)" }
+          Add-Type -AssemblyName System.Drawing
+          $ico = [System.Drawing.Icon]::ExtractAssociatedIcon($exe)
+          if (-not $ico -or $ico.Width -lt 16) { Write-Error "Covil.exe has no icon" }
           "Update: OK"
 
           # 4. uninstall and check nothing was left (the user's data in %APPDATA%\Covil stays on purpose)
@@ -276,4 +290,6 @@ jobs:
           Portable alternative: **Covil-$TAG-windows.zip** (extract the folder and open \`Covil.exe\`).
           EOF
           sed -i 's/^          //' notes.md
-          gh release create "$TAG" "$SETUP" "$ZIP" -R "${{ github.repository }}" --title "Covil $TAG" --notes-file notes.md --verify-tag
+          # se o Release já existe (publicado à mão), só anexa os arquivos
+          if gh release view "$TAG" -R "${{ github.repository }}" >/dev/null 2>&1; then gh release upload "$TAG" "$SETUP" "$ZIP" -R "${{ github.repository }}" --clobber; else
+          gh release create "$TAG" "$SETUP" "$ZIP" -R "${{ github.repository }}" --title "Covil $TAG" --notes-file notes.md --verify-tag; fi
